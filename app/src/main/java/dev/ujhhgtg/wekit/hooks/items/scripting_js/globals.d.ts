@@ -17,6 +17,28 @@ interface HttpResponse {
     readonly error?: string;
 }
 
+/**
+ * 钩子操作句柄
+ */
+interface HookHandle {
+    /**
+     * 移除已安装的钩子
+     * @example
+     * const handle = xposed.hookBefore("com.example.Cls", "method", () => {});
+     * // 稍后取消钩子
+     * handle.unhook();
+     */
+    unhook(): void;
+}
+
+/**
+ * invoke 方法返回值
+ */
+interface MethodReturnValue {
+    readonly value: unknown;
+    readonly exception: boolean;
+}
+
 // --- 日志 API ---
 
 declare namespace log {
@@ -373,7 +395,7 @@ declare namespace xposed {
      *   log.i("hooked via reflect!");
      * });
      */
-    function hookBefore(method: JavaMethod, hookFunc: (thisObj: unknown, args: unknown[]) => unknown | void): void;
+    function hookBefore(method: JavaMethod, hookFunc: (thisObj: unknown, args: unknown[]) => unknown | void): HookHandle;
     
     /**
      * 在目标 Java 方法执行前插入钩子（通过类名与方法名匹配）
@@ -391,7 +413,7 @@ declare namespace xposed {
      *   args[0] = "modified";
      * });
      */
-    function hookBefore(className: string, methodName: string, hookFunc: (thisObj: unknown, args: unknown[]) => unknown | void): void;
+    function hookBefore(className: string, methodName: string, hookFunc: (thisObj: unknown, args: unknown[]) => unknown | void): HookHandle;
 
     /**
      * 在目标 Java 方法执行后插入钩子（通过 JavaMethod 对象匹配）
@@ -399,7 +421,7 @@ declare namespace xposed {
      * @param hookFunc 钩子回调函数，接收 (thisObj, args, originalResult)
      *   若返回非 undefined 的值，将作为方法的新返回值
      */
-    function hookAfter(method: JavaMethod, hookFunc: (thisObj: unknown, args: unknown[], originalResult: unknown) => unknown | void): void;
+    function hookAfter(method: JavaMethod, hookFunc: (thisObj: unknown, args: unknown[], originalResult: unknown) => unknown | void): HookHandle;
 
     /**
      * 在目标 Java 方法执行后插入钩子（通过类名与方法名匹配）
@@ -417,7 +439,7 @@ declare namespace xposed {
      *   return result + "（已修改）";
      * });
      */
-    function hookAfter(className: string, methodName: string, hookFunc: (thisObj: unknown, args: unknown[], originalResult: unknown) => unknown | void): void;
+    function hookAfter(className: string, methodName: string, hookFunc: (thisObj: unknown, args: unknown[], originalResult: unknown) => unknown | void): HookHandle;
 }
 
 // --- 反射 API ---
@@ -495,7 +517,7 @@ interface JavaMethod {
      *   if (args[0]) args[0].putString("extra", "injected");
      * });
      */
-    hookBefore(callback: (thisObj: unknown, args: unknown[]) => unknown | void): void;
+    hookBefore(callback: (thisObj: unknown, args: unknown[]) => unknown | void): HookHandle;
     /**
      * 在方法执行后插入钩子
      * @param callback 钩子回调，接收 (thisObj, args, originalResult)
@@ -512,7 +534,46 @@ interface JavaMethod {
      *   return (result as number) * 2;
      * });
      */
-    hookAfter(callback: (thisObj: unknown, args: unknown[], originalResult: unknown) => unknown | void): void;
+    hookAfter(callback: (thisObj: unknown, args: unknown[], originalResult: unknown) => unknown | void): HookHandle;
+
+    /**
+     * 调用该 Java 方法
+     * @param instance 实例对象（静态方法传 null 或不传）
+     * @param args 方法参数数组
+     * @returns MethodReturnValue，包含返回值与异常标识
+     *   若调用成功，exception 为 false，value 为返回值（void 方法为 undefined）
+     *   若调用抛出异常，exception 为 true，value 为异常对象
+     * @example
+     * // 调用静态方法
+     * const m = reflect.firstMethod("com.example.Util", (n) => n === "getVersion");
+     * const rv = m.invoke(null, []);
+     * if (!rv.exception) log.i("版本:", rv.value);
+     *
+     * // 调用实例方法
+     * const m2 = reflect.firstMethod("com.example.User", (n, pt) => n === "getName" && pt.length === 0);
+     * const rv2 = m2.invoke(userInstance, []);
+     * log.i("用户名:", rv2.value);
+     */
+    invoke(instance: object | null, args: unknown[]): MethodReturnValue;
+}
+
+interface JavaClass {
+    /** 类的全限定名 */
+    readonly name: string;
+    /**
+     * 创建该 Java 类的新实例
+     * @param args 构造方法参数数组
+     * @returns 新创建的实例
+     * @example
+     * // 创建无参实例
+     * const clazz = reflect.toJavaClass("com.example.User");
+     * const user = clazz.createInstance([]);
+     *
+     * // 创建有参实例
+     * const bufClazz = reflect.toJavaClass("java.lang.StringBuilder");
+     * const buf = bufClazz.createInstance(["Hello"]);
+     */
+    createInstance(args: unknown[]): unknown;
 }
 
 declare namespace reflect {
@@ -650,10 +711,36 @@ declare namespace reflect {
      * log.i("targetMethod 存在:", hasMethod);
      */
     function firstMethod(className: string, condition: (name: string, paramTypes: string[], returnType: string, modifiers: string[]) => boolean): JavaMethod | null;
+
+    /**
+     * 获取 Java 类的封装对象
+     * @param className 目标类的全限定名
+     * @returns JavaClass 对象，失败返回 null
+     * @example
+     * // 创建无参实例
+     * const clazz = reflect.toJavaClass("com.example.User");
+     * if (clazz) {
+     *   const user = clazz.createInstance([]);
+     *   log.i("创建成功:", user);
+     * }
+     *
+     * // 创建有参实例
+     * const sb = reflect.toJavaClass("java.lang.StringBuilder");
+     * if (sb) {
+     *   const instance = sb.createInstance(["Hello"]);
+     *   log.i("StringBuilder 实例:", instance);
+     * }
+     *
+     * // 配合 reflect.*Method 使用
+     * const clz = reflect.toJavaClass("com.example.Config");
+     * const cfg = clz.createInstance([]);
+     * const m = reflect.firstMethod("com.example.Config", (n) => n === "setup");
+     * if (m) m.invoke(cfg, []);
+     */
+    function toJavaClass(className: string): JavaClass | null;
 }
 
 // --- DexKit API (基于字节码的搜索) ---
-
 interface MethodsSearcher {
     /** 搜索的包名前缀，例如 ["com.tencent.mm.storage"] */
     searchPackages?: string[];

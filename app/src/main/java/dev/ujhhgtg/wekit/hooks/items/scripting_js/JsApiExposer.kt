@@ -2,7 +2,9 @@ package dev.ujhhgtg.wekit.hooks.items.scripting_js
 
 import android.os.Handler
 import android.os.Looper
+import com.highcapable.kavaref.extension.createInstance
 import com.highcapable.kavaref.extension.toClass
+import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.wekit.hooks.api.core.WeApi
 import dev.ujhhgtg.wekit.hooks.api.core.WeMessageApi
@@ -14,6 +16,7 @@ import dev.ujhhgtg.wekit.utils.hookAfterDirectly
 import dev.ujhhgtg.wekit.utils.hookBeforeDirectly
 import dev.ujhhgtg.wekit.utils.reflection.asMethod
 import dev.ujhhgtg.wekit.utils.reflection.dexKit
+import dev.ujhhgtg.wekit.utils.reflection.makeAccessible
 import dev.ujhhgtg.wekit.utils.serialization.DefaultJson
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -943,7 +946,7 @@ object JsApiExposer {
                     if (first is NativeObject) {
                         val methodProp = try {
                             Context.jsToJava(
-                                ScriptableObject.getProperty(first, "__method"),
+                                getProperty(first, "__method"),
                                 Method::class.java
                             ) as? Method
                         } catch (_: Exception) {
@@ -954,8 +957,7 @@ object JsApiExposer {
                             val hookFunc = args.getOrNull(1) as? org.mozilla.javascript.Function
                                 ?: return Undefined.instance
                             try {
-                                methodProp.isAccessible = true
-                                methodProp.hookBeforeDirectly {
+                                val unhook = methodProp.makeAccessible().hookBeforeDirectly {
                                     val jsThis = thisObject?.let { Context.javaToJS(it, scope, cx) }
                                     val jsArgs = args.let { Context.javaToJS(it, scope, cx) }
                                         ?: Undefined.instance
@@ -964,10 +966,10 @@ object JsApiExposer {
                                         result = hookResult
                                     }
                                 }
+                                return createHookHandle(unhook)
                             } catch (e: Exception) {
                                 WeLogger.e(TAG_XPOSED_API, "xposed.hookBefore (JavaMethod) failed", e)
                             }
-                            return Undefined.instance
                         }
                     }
 
@@ -983,7 +985,7 @@ object JsApiExposer {
                             WeLogger.e(TAG_XPOSED_API, "xposed.hookBefore: no method named $methodName in $className")
                             return Undefined.instance
                         }
-                        method.hookBeforeDirectly {
+                        val unhook = method.hookBeforeDirectly {
                             val jsThis = thisObject?.let { Context.javaToJS(it, scope, cx) }
                             val jsArgs = args.let { Context.javaToJS(it, scope, cx) }
                                 ?: Undefined.instance
@@ -992,6 +994,7 @@ object JsApiExposer {
                                 result = hookResult
                             }
                         }
+                        return createHookHandle(unhook)
                     } catch (e: Exception) {
                         WeLogger.e(TAG_XPOSED_API, "xposed.hookBefore failed", e)
                     }
@@ -1016,7 +1019,7 @@ object JsApiExposer {
                     if (first is NativeObject) {
                         val methodProp = try {
                             Context.jsToJava(
-                                ScriptableObject.getProperty(first, "__method"),
+                                getProperty(first, "__method"),
                                 Method::class.java
                             ) as? Method
                         } catch (_: Exception) {
@@ -1027,8 +1030,7 @@ object JsApiExposer {
                             val hookFunc = args.getOrNull(1) as? org.mozilla.javascript.Function
                                 ?: return Undefined.instance
                             try {
-                                methodProp.isAccessible = true
-                                methodProp.hookAfterDirectly {
+                                val unhook = methodProp.makeAccessible().hookAfterDirectly {
                                     val jsThis = thisObject?.let { Context.javaToJS(it, scope, cx) }
                                     val jsArgs = args.let { Context.javaToJS(it, scope, cx) }
                                         ?: Undefined.instance
@@ -1039,10 +1041,10 @@ object JsApiExposer {
                                         result = hookResult
                                     }
                                 }
+                                return createHookHandle(unhook)
                             } catch (e: Exception) {
                                 WeLogger.e(TAG_XPOSED_API, "xposed.hookAfter (JavaMethod) failed", e)
                             }
-                            return Undefined.instance
                         }
                     }
 
@@ -1058,7 +1060,7 @@ object JsApiExposer {
                             WeLogger.e(TAG_XPOSED_API, "xposed.hookAfter: no method named $methodName in $className")
                             return Undefined.instance
                         }
-                        method.hookAfterDirectly {
+                        val unhook = method.hookAfterDirectly {
                             val jsThis = thisObject?.let { Context.javaToJS(it, scope, cx) }
                             val jsArgs = args.let { Context.javaToJS(it, scope, cx) }
                                 ?: Undefined.instance
@@ -1069,6 +1071,7 @@ object JsApiExposer {
                                 result = hookResult
                             }
                         }
+                        return createHookHandle(unhook)
                     } catch (e: Exception) {
                         WeLogger.e(TAG_XPOSED_API, "xposed.hookAfter failed", e)
                     }
@@ -1143,6 +1146,41 @@ object JsApiExposer {
     private fun getModifierStrings(mods: Int): Array<String> =
         Modifier.toString(mods).split(" ").toTypedArray()
 
+    private fun createJavaClassObject(clazz: Class<*>): NativeObject {
+        val obj = NativeObject()
+
+        ScriptableObject.putProperty(obj, "name", clazz.name)
+
+        ScriptableObject.putProperty(obj, "createInstance", object : BaseFunction() {
+            override fun call(
+                cx: Context,
+                scope: Scriptable,
+                thisObj: Scriptable,
+                args: Array<Any?>
+            ): Any {
+                val jsArgs = args.getOrNull(0) as? NativeArray? ?: return Undefined.instance
+                val javaArgs = Array(jsArgs.length.toInt()) { i ->
+                    val jsVal = jsArgs[i]
+                    try {
+                        Context.jsToJava(jsVal, Any::class.java)
+                    } catch (_: Exception) {
+                        jsVal
+                    }
+                }
+                return try {
+                    @Suppress("UNCHECKED_CAST")
+                    val instance = (clazz as Class<Any>).createInstance(*javaArgs)
+                    Context.javaToJS(instance, scope, cx) ?: Undefined.instance
+                } catch (e: Exception) {
+                    WeLogger.e(TAG_REFLECT_API, "reflect JavaClass.createInstance failed for ${clazz.name}", e)
+                    Undefined.instance
+                }
+            }
+        })
+
+        return obj
+    }
+
     private fun createJavaFieldObject(
         field: Field,
         className: String,
@@ -1167,8 +1205,7 @@ object JsApiExposer {
             ): Any? {
                 return try {
                     val instance = args.getOrNull(0)
-                    field.isAccessible = true
-                    val value = field.get(if (instance is Undefined) null else instance)
+                    val value = field.makeAccessible().get(if (instance is Undefined) null else instance)
                     Context.javaToJS(value, scope, cx) ?: Undefined.instance
                 } catch (e: Exception) {
                     WeLogger.e(TAG_REFLECT_API, "reflect field.get failed on $className.${field.name}", e)
@@ -1185,7 +1222,7 @@ object JsApiExposer {
                 args: Array<Any?>
             ): Any {
                 return try {
-                    field.isAccessible = true
+                    field.makeAccessible()
                     if (args.size >= 2) {
                         val instance = args[0]
                         val value = Context.jsToJava(args[1], field.type)
@@ -1203,6 +1240,17 @@ object JsApiExposer {
         })
 
         return obj
+    }
+
+    private fun createHookHandle(unhook: XC_MethodHook.Unhook): NativeObject {
+        val handle = NativeObject()
+        ScriptableObject.putProperty(handle, "unhook", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable, args: Array<Any?>): Any {
+                unhook.unhook()
+                return Undefined.instance
+            }
+        })
+        return handle
     }
 
     private fun createJavaMethodObject(
@@ -1239,8 +1287,7 @@ object JsApiExposer {
                 val hookFunc = args.getOrNull(0) as? org.mozilla.javascript.Function
                     ?: return Undefined.instance
                 try {
-                    method.isAccessible = true
-                    method.hookBeforeDirectly {
+                    val unhook = method.makeAccessible().hookBeforeDirectly {
                         val jsThis = thisObject?.let { Context.javaToJS(it, scope, cx) }
                         val jsArgs = args.let { Context.javaToJS(it, scope, cx) }
                             ?: Undefined.instance
@@ -1249,6 +1296,7 @@ object JsApiExposer {
                             result = hookResult
                         }
                     }
+                    return createHookHandle(unhook)
                 } catch (e: Exception) {
                     WeLogger.e(TAG_REFLECT_API, "reflect method hookBefore failed on $className.${method.name}", e)
                 }
@@ -1266,8 +1314,7 @@ object JsApiExposer {
                 val hookFunc = args.getOrNull(0) as? org.mozilla.javascript.Function
                     ?: return Undefined.instance
                 try {
-                    method.isAccessible = true
-                    method.hookAfterDirectly {
+                    val unhook = method.makeAccessible().hookAfterDirectly {
                         val jsThis = thisObject?.let { Context.javaToJS(it, scope, cx) }
                         val jsArgs = args.let { Context.javaToJS(it, scope, cx) }
                             ?: Undefined.instance
@@ -1278,10 +1325,66 @@ object JsApiExposer {
                             result = hookResult
                         }
                     }
+                    return createHookHandle(unhook)
                 } catch (e: Exception) {
                     WeLogger.e(TAG_REFLECT_API, "reflect method hookAfter failed on $className.${method.name}", e)
                 }
                 return Undefined.instance
+            }
+        })
+
+        ScriptableObject.putProperty(obj, "invoke", object : BaseFunction() {
+            override fun call(
+                cx: Context,
+                scope: Scriptable,
+                thisObj: Scriptable,
+                args: Array<Any?>
+            ): Any {
+                val instance = args.getOrNull(0)
+                val jsArgs = args.getOrNull(1)
+
+                val paramTypes = method.parameterTypes
+                val javaArgs: Array<Any?> = if (jsArgs is NativeArray) {
+                    Array(paramTypes.size) { i ->
+                        if (i < jsArgs.length.toInt()) {
+                            try {
+                                Context.jsToJava(jsArgs[i], paramTypes[i])
+                            } catch (e: Exception) {
+                                WeLogger.w(
+                                    TAG_REFLECT_API,
+                                    "reflect method invoke arg conversion failed on $className.${method.name} arg[$i]: ${jsArgs[i]}",
+                                    e
+                                )
+                                null
+                            }
+                        } else {
+                            null
+                        }
+                    }
+                } else {
+                    emptyArray()
+                }
+
+                val resultObj = NativeObject()
+
+                try {
+                    val result = method.makeAccessible().invoke(
+                        if (instance is Undefined) null else instance,
+                        *javaArgs
+                    )
+                    resultObj.put("value", resultObj, Context.javaToJS(result, scope, cx) ?: Undefined.instance)
+                    resultObj.put("exception", resultObj, false)
+                } catch (e: Exception) {
+                    WeLogger.e(
+                        TAG_REFLECT_API,
+                        "reflect method invoke failed on $className.${method.name}",
+                        e
+                    )
+                    resultObj.put("value", resultObj, Context.javaToJS(e, scope, cx) ?: Undefined.instance)
+                    resultObj.put("exception", resultObj, true)
+                }
+
+                return resultObj
             }
         })
 
@@ -1415,6 +1518,24 @@ object JsApiExposer {
             }
         })
 
+        ScriptableObject.putProperty(reflectObj, "toJavaClass", object : BaseFunction() {
+            override fun call(
+                cx: Context,
+                scope: Scriptable,
+                thisObj: Scriptable,
+                args: Array<Any?>
+            ): Any? {
+                val className = args.getOrNull(0)?.toString() ?: return Undefined.instance
+                return try {
+                    val clazz = className.toClass()
+                    createJavaClassObject(clazz)
+                } catch (e: Exception) {
+                    WeLogger.e(TAG_REFLECT_API, "reflect.toJavaClass failed for $className", e)
+                    Undefined.instance
+                }
+            }
+        })
+
         ScriptableObject.putProperty(scope, "reflect", reflectObj)
     }
 
@@ -1508,7 +1629,7 @@ object JsApiExposer {
                 scope: Scriptable,
                 thisObj: Scriptable,
                 args: Array<Any?>
-            ): Any? {
+            ): Any {
                 val searcher = args.getOrNull(0) as? NativeObject
                     ?: return NativeObject()
                 return try {
