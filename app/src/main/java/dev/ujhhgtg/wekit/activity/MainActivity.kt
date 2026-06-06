@@ -253,6 +253,7 @@ private fun AppContent(resultLauncher: ActivityResultLauncher<String>, onUrlClic
                         DropdownMenuItem(
                             text = { Text("反编译 BeanShell 快照") },
                             onClick = {
+                                showMenu = false
                                 resultLauncher.launch("*/*")
                             }
                         )

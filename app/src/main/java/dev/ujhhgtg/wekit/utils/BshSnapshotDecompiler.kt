@@ -1,4 +1,4 @@
-@file:Suppress("unused", "SameParameterValue", "KotlinConstantConditions")
+@file:Suppress("unused", "SameParameterValue")
 
 package dev.ujhhgtg.wekit.utils
 
@@ -80,7 +80,17 @@ object BshSnapshotDecompiler {
 
     fun decompile(snapshot: BshSnapshot): String {
         val nodes = snapshot.nodes ?: return ""
-        return nodes.joinToString("\n") { decompileNode(it, 0) }
+        return nodes.joinToString("\n") { node ->
+            val code = decompileNode(node, 0)
+            // Add trailing semicolons for IDE friendliness.
+            // BeanShell itself does not require them.
+            if (code.isEmpty() ||
+                code.endsWith(";") ||
+                code.endsWith("}") ||
+                code.endsWith(":")
+            ) code
+            else "$code;"
+        }
     }
 
     // ── Snapshot reading ───────────────────────────────────────────────────
@@ -131,73 +141,84 @@ object BshSnapshotDecompiler {
     private fun decompileNode(node: Node, indent: Int): String {
         if (node.jjtGetNumChildren() == 0 && node.getId() == 0)
             return ""
-        return dbg(node, when (node.getId()) {
-            0 -> ""
-            1 -> decompileClass(node as BSHClassDeclaration, indent)
-            2 -> decompileEnumConst(node as BSHEnumConstant)
-            3 -> decompileBlock(node as BSHBlock, indent)
-            4 -> decompileMethod(node as BSHMethodDeclaration, indent)
-            5 -> decompilePackage(node)
-            6 -> decompileImport(node as BSHImportDeclaration)
-            7 -> decompileVarDeclarator(node as BSHVariableDeclarator)
-            8 -> decompileArrayInit(node, indent)
-            9 -> decompileFormalParams(node, indent)
-            10 -> decompileFormalParam(node as BSHFormalParameter)
-            11 -> decompileType(node as BSHType)
-            12 -> decompileReturnType(node as BSHReturnType)
-            13 -> decompilePrimitiveType(node as BSHPrimitiveType)
-            14 -> (node as BSHAmbiguousName).text
-            15 -> decompileAssignment(node as BSHAssignment, indent)
-            16 -> decompileTernary(node, indent)
-            17 -> decompileBinary(node as BSHBinaryExpression, indent)
-            18 -> decompileUnary(node as BSHUnaryExpression, indent)
-            19 -> decompileCast(node, indent)
-            20 -> decompilePrimaryExpr(node, indent)
-            21 -> decompileMethodInvocation(node, indent)
-            22 -> decompileLambda(node as BSHLambdaExpression, indent)
-            23 -> decompileChildren(node, ", ", indent)
-            24 -> decompileChildren(node, ", ", indent)
-            25 -> decompilePrimarySuffix(node as BSHPrimarySuffix, indent)
-            26 -> decompileLiteral(node as BSHLiteral)
-            27 -> decompileArgs(node, indent)
-            28 -> decompileAllocation(node as BSHAllocationExpression, indent)
-            29 -> decompileArrayDims(node as BSHArrayDimensions, indent)
-            30 -> decompileLabeledStmt(node as BSHLabeledStatement, indent)
-            31 -> decompileSwitch(node, indent)
-            32 -> decompileSwitchLabel(node as BSHSwitchLabel, indent)
-            33 -> decompileIf(node as BSHIfStatement, indent)
-            34 -> decompileWhile(node as BSHWhileStatement, indent)
-            35 -> decompileFor(node as BSHForStatement, indent)
-            36 -> decompileEnhancedFor(node as BSHEnhancedForStatement, indent)
-            37 -> decompileTypedVarDecl(node as BSHTypedVariableDeclaration, indent)
-            38 -> decompileChildren(node, ", ", indent)
-            39 -> decompileReturn(node as BSHReturnStatement, indent)
-            40 -> "throw ${decompileChild(node, 0, indent)};"
-            41 -> decompileTry(node, indent)
-            42 -> decompileMultiCatch(node as BSHMultiCatch)
-            43 -> "try"
-            44 -> decompileAutoCloseable(node as BSHAutoCloseable, indent)
-            else -> "/* unknown node ${node.javaClass.name} */"
-        })
+        return dbg(
+            node, when (node.getId()) {
+                0 -> ""
+                1 -> decompileClass(node as BSHClassDeclaration, indent)
+                2 -> decompileEnumConst(node as BSHEnumConstant)
+                3 -> decompileBlock(node as BSHBlock, indent)
+                4 -> decompileMethod(node as BSHMethodDeclaration, indent)
+                5 -> decompilePackage(node)
+                6 -> decompileImport(node as BSHImportDeclaration)
+                7 -> decompileVarDeclarator(node as BSHVariableDeclarator)
+                8 -> decompileArrayInit(node, indent)
+                9 -> decompileFormalParams(node, indent)
+                10 -> decompileFormalParam(node as BSHFormalParameter)
+                11 -> decompileType(node as BSHType)
+                12 -> decompileReturnType(node as BSHReturnType)
+                13 -> decompilePrimitiveType(node as BSHPrimitiveType)
+                14 -> (node as BSHAmbiguousName).text
+                15 -> decompileAssignment(node as BSHAssignment, indent)
+                16 -> decompileTernary(node, indent)
+                17 -> decompileBinary(node as BSHBinaryExpression, indent)
+                18 -> decompileUnary(node as BSHUnaryExpression, indent)
+                19 -> decompileCast(node, indent)
+                20 -> decompilePrimaryExpr(node, indent)
+                21 -> decompileMethodInvocation(node, indent)
+                22 -> decompileLambda(node as BSHLambdaExpression, indent)
+                23 -> decompileChildren(node, ", ", indent)
+                24 -> decompileChildren(node, ", ", indent)
+                25 -> decompilePrimarySuffix(node as BSHPrimarySuffix, indent)
+                26 -> decompileLiteral(node as BSHLiteral)
+                27 -> decompileArgs(node, indent)
+                28 -> decompileAllocation(node as BSHAllocationExpression, indent)
+                29 -> decompileArrayDims(node as BSHArrayDimensions, indent)
+                30 -> decompileLabeledStmt(node as BSHLabeledStatement, indent)
+                31 -> decompileSwitch(node, indent)
+                32 -> decompileSwitchLabel(node as BSHSwitchLabel, indent)
+                33 -> decompileIf(node as BSHIfStatement, indent)
+                34 -> decompileWhile(node as BSHWhileStatement, indent)
+                35 -> decompileFor(node as BSHForStatement, indent)
+                36 -> decompileEnhancedFor(node as BSHEnhancedForStatement, indent)
+                37 -> decompileTypedVarDecl(node as BSHTypedVariableDeclaration, indent)
+                38 -> decompileChildren(node, ", ", indent)
+                39 -> decompileReturn(node as BSHReturnStatement, indent)
+                40 -> "throw ${decompileChild(node, 0, indent)};"
+                41 -> decompileTry(node, indent)
+                42 -> decompileMultiCatch(node as BSHMultiCatch)
+                43 -> "try"
+                44 -> decompileAutoCloseable(node as BSHAutoCloseable, indent)
+                else -> "/* unknown node ${node.javaClass.name} */"
+            }
+        )
     }
 
     private fun decompileBlock(block: BSHBlock, indent: Int): String {
         val sb = StringBuilder()
-        if (block.isSynchronized) sb.append("synchronized ")
-        if (block.isStatic) sb.append("static ")
-        sb.append("{\n")
-        for (i in 0 until block.jjtGetNumChildren()) {
-            val child = decompileNode(block.jjtGetChild(i), indent + 1)
-            if (child.isNotEmpty()) {
-                sb.append("  ".repeat(indent + 1))
-                sb.append(child)
-                if (!child.endsWith(";") && !child.endsWith("}") && !child.endsWith("{\n") && !child.endsWith(":"))
-                    sb.append(";")
-                sb.append("\n")
+        if (block.isSynchronized) {
+            // synchronized(expr) – child 0 is the expression, child 1+ is the body
+            val expr = if (block.jjtGetNumChildren() > 0)
+                decompileNode(block.jjtGetChild(0), indent) else "?"
+            sb.append("synchronized ($expr) ")
+            for (i in 1 until block.jjtGetNumChildren()) {
+                sb.append(decompileNode(block.jjtGetChild(i), indent))
             }
+        } else {
+            if (block.isStatic) sb.append("static ")
+            sb.append("{\n")
+            for (i in 0 until block.jjtGetNumChildren()) {
+                val child = decompileNode(block.jjtGetChild(i), indent + 1)
+                if (child.isNotEmpty()) {
+                    sb.append("  ".repeat(indent + 1))
+                    sb.append(child)
+                    if (!child.endsWith(";") && !child.endsWith("}") && !child.endsWith("{\n") && !child.endsWith(":"))
+                        sb.append(";")
+                    sb.append("\n")
+                }
+            }
+            sb.append("  ".repeat(indent))
+            sb.append("}")
         }
-        sb.append("  ".repeat(indent))
-        sb.append("}")
         return dbg(block, sb.toString())
     }
 
@@ -229,7 +250,7 @@ object BshSnapshotDecompiler {
         if (md.modifiers.modifiers != 0) sb.append(modifiersString(md.modifiers)).append(" ")
         val nc = md.jjtGetNumChildren()
         var i = 0
-        if (i < nc && md.jjtGetChild(i).getId() == 12) {
+        if (0 < nc && md.jjtGetChild(i).getId() == 12) {
             sb.append(decompileReturnType(md.jjtGetChild(i) as BSHReturnType))
             sb.append(" ")
             i++
@@ -419,6 +440,7 @@ object BshSnapshotDecompiler {
                     if (sfx.safeNavigate) "?.[$idx]" else "[$idx]"
                 }
             }
+
             2 -> {
                 val name = sfx.field ?: "?"
                 if (sfx.jjtGetNumChildren() > 0)
@@ -426,14 +448,17 @@ object BshSnapshotDecompiler {
                 else
                     ".$name"
             }
+
             3 -> {
                 val expr = if (sfx.jjtGetNumChildren() > 0) decompileNode(sfx.jjtGetChild(0), indent) else "?"
                 ".($expr)"
             }
+
             4 -> {
                 val alloc = if (sfx.jjtGetNumChildren() > 0) decompileNode(sfx.jjtGetChild(0), indent) else ""
                 ".$alloc"
             }
+
             5 -> "::${sfx.field ?: "?"}"
             6 -> ".class"
             else -> "/* unknown suffix op=${sfx.operation} */"
@@ -471,6 +496,7 @@ object BshSnapshotDecompiler {
                 Primitive.VOID -> "void"
                 else -> v.toString()
             }
+
             else -> v.toString()
         }
         return dbg(lit, result)
@@ -620,6 +646,7 @@ object BshSnapshotDecompiler {
             val value = if (rs.jjtGetNumChildren() > 0) decompileNode(rs.jjtGetChild(0), indent) else ""
             if (value.isNotEmpty()) "return $value;" else "return;"
         }
+
         13 -> "break;"
         20 -> "continue;"
         else -> {
