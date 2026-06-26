@@ -4,14 +4,16 @@ import android.content.Context
 import android.util.DisplayMetrics
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import dev.ujhhgtg.reflekt.utils.isStatic
+import dev.ujhhgtg.reflekt.utils.makeAccessible
 import dev.ujhhgtg.reflekt.utils.toClass
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
@@ -20,15 +22,12 @@ import dev.ujhhgtg.wekit.hooks.core.HookItem
 import dev.ujhhgtg.wekit.preferences.WePrefs.Companion.prefOption
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
-import dev.ujhhgtg.wekit.ui.content.DefaultColumn
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.android.showToast
 import dev.ujhhgtg.wekit.utils.reflection.BBool
 import dev.ujhhgtg.wekit.utils.reflection.BFloat
 import dev.ujhhgtg.wekit.utils.reflection.BInt
-import dev.ujhhgtg.reflekt.utils.isStatic
-import dev.ujhhgtg.reflekt.utils.makeAccessible
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier as ReflectModifier
@@ -76,15 +75,13 @@ object CustomDpi : ClickableHookItem(), IResolveDex {
             AlertDialogContent(
                 title = { Text("DPI 修改") },
                 text = {
-                    DefaultColumn {
-                        OutlinedTextField(
-                            value = value,
-                            onValueChange = { value = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("显示宽度") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                    TextField(
+                        value = value,
+                        onValueChange = { value = it.filter { ch -> ch.isDigit() } },
+                        label = { Text("显示宽度") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 },
                 dismissButton = {
                     TextButton(onDismiss) { Text("取消") }

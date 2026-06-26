@@ -32,8 +32,15 @@ object ParcelableFixer {
     }
 
     private fun fixIntentExtrasClassLoader(intent: Intent?) {
+        if (!isTargetIntent(intent)) return
         val cl = hybridClassLoader
         runCatching { intent?.setExtrasClassLoader(cl) }
+    }
+
+    private fun isTargetIntent(intent: Intent?): Boolean {
+        intent ?: return false
+        val className = intent.component?.className ?: return false
+        return ActivityProxy.ActProxyMgr.isModuleProxyActivity(className)
     }
 
     private fun hookIntentMethods() {
@@ -43,6 +50,8 @@ object ParcelableFixer {
             }
 
             override fun afterHookedMethod(param: MethodHookParam) {
+                val intent = param.thisObject as? Intent ?: return
+                if (!isTargetIntent(intent)) return
                 val cl = hybridClassLoader
                 (param.result as? Bundle)?.classLoader = cl
             }
